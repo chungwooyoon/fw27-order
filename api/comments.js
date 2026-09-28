@@ -1,27 +1,27 @@
-// 코멘트 저장/조회 API (Vercel Blob 사용)
-// GET  /api/comments        -> 코멘트 전체 목록
-// POST /api/comments        -> 코멘트 한 건 저장(같은 사람+같은 항목이면 덮어씀)
-import { put, list } from '@vercel/blob';
+// 코멘트 저장/조회 API (Vercel Blob · 비공개 저장소)
+// GET  /api/comments -> 코멘트 전체 목록
+// POST /api/comments -> 코멘트 한 건 저장 (같은 사람 + 같은 항목이면 덮어씀)
+// Vercel에 배포되면 인증은 자동(OIDC)으로 처리되어 별도 키가 필요 없습니다.
+import { put, get } from '@vercel/blob';
 
 const FILE = 'fw27-comments.json';
 
 async function readAll() {
   try {
-    const { blobs } = await list({ prefix: FILE });
-    const b = blobs.find(x => x.pathname === FILE);
-    if (!b) return [];
-    const res = await fetch(b.url, { cache: 'no-store' });
-    if (!res.ok) return [];
-    const rows = await res.json();
+    const res = await get(FILE, { access: 'private' });
+    if (!res || res.statusCode !== 200 || !res.stream) return [];
+    const text = await new Response(res.stream).text();
+    const rows = JSON.parse(text);
     return Array.isArray(rows) ? rows : [];
   } catch (e) {
-    return [];
+    if (e && (e.name === 'BlobNotFoundError' || /not found/i.test(String(e.message || e)))) return [];
+    throw e;
   }
 }
 
 async function writeAll(rows) {
   await put(FILE, JSON.stringify(rows), {
-    access: 'public',
+    access: 'private',
     contentType: 'application/json',
     addRandomSuffix: false,
     allowOverwrite: true,
@@ -55,6 +55,6 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'GET, POST만 지원' });
   } catch (e) {
-    return res.status(500).json({ error: String(e && e.message || e) });
+    return res.status(500).json({ error: String((e && e.message) || e) });
   }
 }
