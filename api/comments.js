@@ -47,10 +47,20 @@ export default async function handler(req, res) {
         body: String(b.body || '').slice(0, 2000),
         updated_at: Date.now(),
       };
-      const rows = (await readAll()).filter(r => !(r.item_key === key && r.author_id === uid));
-      if (row.body.trim()) rows.push(row);
-      await writeAll(rows);
-      return res.status(200).json({ ok: true, count: rows.length });
+      // 읽기가 잠깐 옛날 내용을 줄 수 있어, 저장 후 확인하고 필요하면 다시 시도
+      let count = 0;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const rows = (await readAll()).filter(r => !(r.item_key === key && r.author_id === uid));
+        if (row.body.trim()) rows.push(row);
+        await writeAll(rows);
+        count = rows.length;
+        await new Promise(r => setTimeout(r, 400));
+        const check = await readAll();
+        const saved = check.find(r => r.item_key === key && r.author_id === uid);
+        const ok = row.body.trim() ? (saved && saved.body === row.body) : !saved;
+        if (ok) break;
+      }
+      return res.status(200).json({ ok: true, count });
     }
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'GET, POST만 지원' });
